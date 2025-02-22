@@ -168,6 +168,41 @@ const EmployeeGrid = () => {
       localStorage.setItem("gridState", JSON.stringify(gridState));
       message.success("Grid state saved!");
   };
+  const restoreGridState = () => {
+    if (!gridRef.current || !gridRef.current.api || !gridRef.current.columnApi) {
+        console.warn("Grid API not available yet. Retrying in 500ms...");
+        setTimeout(restoreGridState, 500); // Retry after 500ms
+        return;
+    }
+
+    const savedState = localStorage.getItem("gridState");
+    if (!savedState) return;
+
+    const { selectedRowIds, columnState, paginationState } = JSON.parse(savedState);
+
+    // Restore column state safely
+    if (columnState) {
+        gridRef.current.columnApi.applyColumnState({
+            state: columnState,
+            applyOrder: true
+        });
+    }
+
+    // Restore selected rows
+    gridRef.current.api.forEachNode((node) => {
+        if (selectedRowIds?.includes(node.data.id)) {
+            node.setSelected(true);
+        }
+    });
+
+    // Restore pagination
+    if (paginationState !== undefined) {
+        gridRef.current.api.paginationGoToPage(paginationState);
+    }
+
+    message.success("Grid state restored!");
+};
+
   
   
 
@@ -203,8 +238,12 @@ return (
                     Export Selected as CSV
                 </Button>
                 <Button onClick={saveGridState} type="primary" style={{ marginLeft: 10 }}>
-    Save Grid State
-</Button>
+               
+                 Save Grid State
+                 </Button>
+                 <Button onClick={restoreGridState} type="primary" style={{ marginLeft: 10 }}>
+                Restore Grid State
+            </Button>
 
 
 
