@@ -3,6 +3,10 @@ import React, { useState,useRef} from "react";
 import { AgGridReact } from "ag-grid-react";
 import {ModuleRegistry, RowSelectionModule, TextFilterModule} from "ag-grid-community";
 import { provideGlobalGridOptions } from 'ag-grid-community';
+import { useEffect } from "react";
+
+import axios from "axios";
+
 
 
 import {
@@ -61,12 +65,10 @@ const EmployeeGrid = () => {
     const [statusFilter, setStatusFilter] = useState(null);
     const gridRef = useRef(null);
 
-    const showModal = (data) => {
-        setEditData(data);
-        setIsModalVisible(true);
-    };
 
-    const handleOk = () => {
+
+
+    /*const handleOk = () => {
         if (editData.id && rowData.some(emp => emp.id=== editData.id)) {
             // Editing existing employee
             setRowData((prevData) =>
@@ -110,9 +112,81 @@ const EmployeeGrid = () => {
             }
             
         });
+    };*/
+    
+
+    useEffect(() => {
+        fetchEmployees();
+    }, []);
+
+    const fetchEmployees = async () => {
+        try {
+            const response = await axios.get("http://localhost:3000/employees");
+            setRowData(response.data);
+        } catch (error) {
+            message.error("Error fetching employees");
+        }
     };
 
+    const showModal = (data = null) => {
+        setEditData(data || { name: "", department: "", role: "", salary: "", status: "Active" });
+        setIsModalVisible(true);
+    };
 
+    const handleOk = async () => {
+        try {
+            if (editData._id) {
+                // Edit existing employee (PUT request)
+                const response = await axios.put(`http://localhost:3000/employees/${editData._id}`, editData);
+                setRowData((prevData) =>
+                    prevData.map((emp) => (emp._id === response.data._id ? response.data : emp))
+                );
+                message.success("Employee updated successfully");
+            } else {
+                // Add new employee (POST request)
+                const response = await axios.post("http://localhost:3000/employees", editData);
+                setRowData((prevData) => [...prevData, response.data]);
+                message.success("Employee added successfully");
+            }
+        } catch (error) {
+            message.error("Error saving employee data");
+        }
+        setIsModalVisible(false);
+    };
+
+    const handleCancel = () => {
+        setIsModalVisible(false);
+    };
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setEditData((prevData) => ({ ...prevData, [name]: value }));
+    };
+
+    const handleDelete = (_id) => {
+        if (!_id) {
+            message.error("Invalid employee ID");
+            return;
+        }
+    
+        Modal.confirm({
+            title: "Are you sure you want to delete this employee?",
+            content: "This action cannot be undone.",
+            okText: "Yes, Delete",
+            cancelText: "Cancel",
+            onOk: () => {
+                axios.delete(`http://localhost:3000/employees/${_id}`)
+                    .then(() => {
+                        setRowData((prevData) => prevData.filter((emp) => emp._id !== _id));
+                        message.success("Employee deleted successfully");
+                    })
+                    .catch(() => {
+                        message.error("Error deleting employee");
+                    });
+            }
+        });
+    };
+    
     const filteredData = rowData.filter(emp =>
         emp.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
         (departmentFilter ? emp.department === departmentFilter : true) &&
@@ -121,7 +195,7 @@ const EmployeeGrid = () => {
     const renderActions = (params) => (
         <div>
             <button className="btn btn-primary" onClick={() => showModal(params.data)}>Edit</button>
-            <button className="btn btn-danger" onClick={() => handleDelete(params.data.id)} style={{ marginLeft: "15px" }}>Delete</button>
+            <button className="btn btn-danger" onClick={() => handleDelete(params.data._id)} style={{ marginLeft: "15px" }}>Delete</button>
         </div>
     );
     const exportSelectedRows = () => {
@@ -153,57 +227,72 @@ const EmployeeGrid = () => {
         link.click();
     };
     const saveGridState = () => {
-      if (!gridRef.current || !gridRef.current.api || !gridRef.current.columnApi) {
-          console.warn("Grid API not available yet.");
-          message.error("Grid is not ready yet!");
-          return;
-      }
-  
-      const gridState = {
-          selectedRowIds: gridRef.current.api.getSelectedRows().map(row => row.id),
-          columnState: gridRef.current.columnApi.getColumnState(),
-          paginationState: gridRef.current.api.paginationGetCurrentPage()
-      };
-  
-      localStorage.setItem("gridState", JSON.stringify(gridState));
-      message.success("Grid state saved!");
-  };
-  const restoreGridState = () => {
-    if (!gridRef.current || !gridRef.current.api || !gridRef.current.columnApi) {
-        console.warn("Grid API not available yet. Retrying in 500ms...");
-        setTimeout(restoreGridState, 500); // Retry after 500ms
-        return;
-    }
-
-    const savedState = localStorage.getItem("gridState");
-    if (!savedState) return;
-
-    const { selectedRowIds, columnState, paginationState } = JSON.parse(savedState);
-
-    // Restore column state safely
-    if (columnState) {
-        gridRef.current.columnApi.applyColumnState({
-            state: columnState,
-            applyOrder: true
-        });
-    }
-
-    // Restore selected rows
-    gridRef.current.api.forEachNode((node) => {
-        if (selectedRowIds?.includes(node.data.id)) {
-            node.setSelected(true);
+        if (!gridRef.current || !gridRef.current.api || !gridRef.current.columnApi) {
+            console.warn("Grid API not available yet.");
+            message.error("Grid is not ready yet!");
+            return;
         }
-    });
-
-    // Restore pagination
-    if (paginationState !== undefined) {
-        gridRef.current.api.paginationGoToPage(paginationState);
-    }
-
-    message.success("Grid state restored!");
-};
-
-  
+    
+        const gridState = {
+            selectedRowIds: gridRef.current.api.getSelectedRows().map(row => row.id),
+            columnState: gridRef.current.columnApi.getColumnState(),
+            paginationState: gridRef.current.api.paginationGetCurrentPage(),
+            pageSize: gridRef.current.api.paginationGetPageSize(),
+            filterState: gridRef.current.api.getFilterModel(),  // Save filter state
+        };
+    
+        localStorage.setItem("gridState", JSON.stringify(gridState));
+        message.success("Grid state saved successfully!");
+    };
+    
+    const restoreGridState = () => {
+        const savedState = localStorage.getItem("gridState");
+        if (!savedState) {
+            message.warning("No saved state found.");
+            return;
+        }
+    
+        const { selectedRowIds, columnState, paginationState, pageSize, filterState } = JSON.parse(savedState);
+    
+        if (gridRef.current && gridRef.current.api) {
+            // Restore column state
+            if (columnState) {
+                gridRef.current.columnApi.applyColumnState({
+                    state: columnState,
+                    applyOrder: true
+                });
+            }
+    
+            // Restore selected rows
+            gridRef.current.api.forEachNode((node) => {
+                if (selectedRowIds?.includes(node.data.id)) {
+                    node.setSelected(true);
+                }
+            });
+    
+            // Restore pagination settings
+            if (pageSize) {
+                gridRef.current.api.paginationSetPageSize(pageSize);
+            }
+            if (paginationState !== undefined) {
+                gridRef.current.api.paginationGoToPage(paginationState);
+            }
+    
+            // Restore filter settings
+            if (filterState) {
+                gridRef.current.api.setFilterModel(filterState);
+            }
+    
+            message.success("Grid state restored successfully!");
+        }
+    };
+    
+    const onGridReady = (params) => {
+        gridRef.current = params.api; // Ensure gridRef points to `api` directly
+        setTimeout(() => restoreGridState(), 500); // Delay restoring state for API readiness
+    };
+    
+    
   
 
   
@@ -253,6 +342,7 @@ return (
 
                 <AgGridReact
                     ref={gridRef}
+                    onGridReady={onGridReady}
                     rowData={filteredData}
                     columnDefs={colDefs}
                     pagination={true}
